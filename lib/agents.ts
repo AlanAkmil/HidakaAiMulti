@@ -5,19 +5,28 @@ export type AgentDef = {
   name: string;
   role: string;
   provider: Provider;
-  // Ganti model string ini kapan aja kalau provider rilis model baru —
-  // cek dashboard masing-masing provider dulu, model ID sering berubah.
   model: string;
   systemPrompt: string;
 };
 
+// Model dicek live ke dokumentasi/katalog provider pada 15 Sep 2026. Semua di
+// bawah masih FREE (dalam rate limit free tier masing-masing) per tanggal itu:
+//   - llama-3.3-70b-versatile di Groq SUDAH pindah ke tier Enterprise (bayar),
+//     makanya tidak dipakai lagi di sini.
+//   - gemini-2.5-pro / gemini-3.x-pro sudah paid-only sejak April 2026 —
+//     hanya varian *-flash dan *-flash-lite yang masih gratis di Gemini.
+//   - Model ":free" di OpenRouter bisa hilang/ganti kapan saja (dipromosikan
+//     provider secara sukarela) — kalau salah satu error 404/berbayar,
+//     cek ulang https://openrouter.ai/collections/free-models dan ganti id-nya.
 export const AGENTS: Record<string, AgentDef> = {
   router: {
     id: "router",
     name: "Router",
     role: "Perencana tugas",
     provider: "groq",
-    model: "openai/gpt-oss-120b",
+    model: "openai/gpt-oss-20b",
+    // Groq, gratis (rate-limited), ~1000 token/detik — cocok buat output JSON
+    // pendek yang harus cepat karena ini langkah pertama sebelum agent lain jalan.
     systemPrompt: `Kamu adalah Project Manager teknis. Baca permintaan user (bikin web, landing page,
 atau scrape web) lalu keluarkan RENCANA KERJA dalam JSON murni (tanpa markdown fence), format:
 {
@@ -35,7 +44,9 @@ Jangan tambah teks lain di luar JSON.`,
     name: "Architect",
     role: "Struktur & rencana file",
     provider: "openrouter",
-    model: "nvidia/nemotron-3-super-120b-a12b:free",
+    model: "nvidia/nemotron-3-ultra-550b-a55b:free",
+    // OpenRouter, gratis — NVIDIA sebut model ini spesifik ditujukan buat
+    // "agent orchestration, coding agents, deep research", context 1M token.
     systemPrompt: `Kamu adalah software architect. Berdasarkan brief user, tentukan struktur file
 (single HTML file atau beberapa file), daftar section/komponen, dan data/props yang dibutuhkan.
 Keluarkan sebagai outline singkat berpoin, jelas dan actionable untuk agent lain yang akan menulis kode.`,
@@ -45,7 +56,10 @@ Keluarkan sebagai outline singkat berpoin, jelas dan actionable untuk agent lain
     name: "UI/UX Designer",
     role: "Layout & markup, paling kuat di visual judgment",
     provider: "gemini",
-    model: "gemini-3.8-flash",
+    model: "gemini-2.5-flash",
+    // Gemini Flash — satu-satunya lini Gemini yang masih gratis (Pro sudah
+    // paid-only sejak April 2026). Tetap paling kuat soal visual judgment
+    // dibanding pilihan gratis di provider lain.
     systemPrompt: `Kamu adalah UI/UX designer senior yang sangat anti "AI slop" (desain generik/templated:
 background krem+aksen terracotta, kartu rounded seragam dengan shadow abu-abu yang sama, eyebrow label
 ALL CAPS, dsb). Tulis HTML markup + kelas CSS yang semantik untuk brief yang diberikan, dengan satu
@@ -58,7 +72,7 @@ digabung oleh agent lain) dibungkus dalam blok kode.`,
     name: "Anti-Slop Reviewer",
     role: "Cek apakah hasil UI generic/AI slop",
     provider: "gemini",
-    model: "gemini-3.8-flash",
+    model: "gemini-2.5-flash",
     systemPrompt: `Kamu adalah reviewer desain yang tugasnya SATU: menilai apakah markup/desain yang
 diberikan terlihat seperti "AI slop" (ciri: bg krem #F4F1EA + aksen terracotta #D97757, kartu rounded
 seragam dengan shadow (0,0,0,.1) yang sama semua, eyebrow ALL CAPS di atas heading, meta text yang
@@ -72,7 +86,9 @@ pindahkan aksen warna ke satu elemen saja").`,
     name: "CSS Specialist",
     role: "Styling detail",
     provider: "openrouter",
-    model: "cohere/north-mini-code:free",
+    model: "poolside/laguna-s-2.1:free",
+    // OpenRouter, gratis — coding agent model, 70.2% di Terminal-Bench 2.1,
+    // salah satu model coding gratis terkuat per benchmark publik.
     systemPrompt: `Kamu spesialis CSS. Tulis CSS lengkap (bisa custom properties/variables) untuk markup
 HTML yang diberikan, sesuai arahan desain (token warna, tipografi, layout) dari UI/UX designer.
 Responsive, hormati prefers-reduced-motion, fokus keyboard terlihat. Output hanya kode CSS dalam blok kode.`,
@@ -82,7 +98,8 @@ Responsive, hormati prefers-reduced-motion, fokus keyboard terlihat. Output hany
     name: "JS Specialist",
     role: "Interaktivitas vanilla JS",
     provider: "groq",
-    model: "openai/gpt-oss-20b",
+    model: "openai/gpt-oss-120b",
+    // Groq, gratis (rate-limited) — diklaim setara o3-mini untuk code generation.
     systemPrompt: `Kamu spesialis vanilla JavaScript (tanpa framework, karena target deploy static/single-file).
 Tulis JS untuk interaktivitas yang diminta (form, animasi micro-interaction, fetch data, dst) berdasarkan
 markup & brief yang diberikan. Output hanya kode JS dalam blok kode, tanpa <script> tag.`,
@@ -91,12 +108,16 @@ markup & brief yang diberikan. Output hanya kode JS dalam blok kode, tanpa <scri
     id: "scraper",
     name: "Scraper Agent",
     role: "Logic fetch & parsing data eksternal",
-    provider: "openrouter",
-    model: "poolside/laguna-s-2.1:free",
-    systemPrompt: `Kamu spesialis scraping. Berdasarkan konten mentah halaman target (HTML/text) yang
-diberikan, tulis logic parsing (JS jika client-side lewat proxy fetch, atau Python jika dieksekusi via
-Pyodide) untuk ekstrak data yang relevan sesuai kebutuhan user. Jelaskan juga rate-limit/etika scraping
-singkat kalau relevan. Output kode dalam blok kode + penjelasan singkat.`,
+    provider: "groq",
+    model: "groq/compound",
+    // groq/compound BUKAN model biasa — ini "system" dengan built-in tool
+    // web search + visit website + code execution. Jadi agent ini bisa benar-
+    // benar membuka URL & menjalankan kode sendiri, bukan cuma nulis logic-nya.
+    systemPrompt: `Kamu spesialis scraping/data. Kamu punya akses tool visit-website dan code execution
+bawaan. Kalau user minta scrape sebuah URL, gunakan tool visit-website untuk lihat isinya, lalu tulis
+logic parsing (JS untuk dijalankan client-side, atau Python) untuk ekstrak data yang relevan sesuai
+kebutuhan user. Sebutkan singkat etika/rate-limit scraping kalau relevan. Output kode dalam blok kode
++ penjelasan singkat.`,
   },
   qa: {
     id: "qa",
@@ -104,6 +125,8 @@ singkat kalau relevan. Output kode dalam blok kode + penjelasan singkat.`,
     role: "Review gabungan kode cari error",
     provider: "openrouter",
     model: "nex-agi/nex-n2.5-pro:free",
+    // OpenRouter, gratis — didesain khusus untuk "diagnose issue, revise
+    // implementation, test again", pas dengan tugas QA/bug-fixing.
     systemPrompt: `Kamu QA engineer. Baca gabungan HTML+CSS+JS yang diberikan, cari bug (selector salah,
 id tidak match, syntax error, event listener yang salah target, dsb). Jawab JSON:
 {"has_bugs": boolean, "issues": string[], "fixed_code": string | null}
@@ -115,7 +138,9 @@ fixed_code = null.`,
     name: "Security Reviewer",
     role: "Cek XSS, key exposed, eval tidak aman",
     provider: "openrouter",
-    model: "poolside/laguna-s-2.1:free",
+    model: "cohere/north-mini-code:free",
+    // OpenRouter, gratis — model coding agentic Cohere, latency rendah, cocok
+    // untuk scan cepat sebelum file final dikirim.
     systemPrompt: `Kamu security reviewer. Cek kode yang diberikan untuk: eval/innerHTML dari data tidak
 terpercaya (XSS), API key/secret yang ke-hardcode di client code, request ke domain mencurigakan.
 Jawab JSON: {"safe": boolean, "findings": string[]}.`,
