@@ -20,21 +20,36 @@ timeline kerja, live preview, run Python (via Pyodide di browser), dan export ZI
    - `GROQ_API_KEY` — dari [console.groq.com/keys](https://console.groq.com/keys)
 5. Redeploy setelah nambah env var (Vercel > Deployments > ⋯ > Redeploy).
 
+## Model yang dipakai (dicek live 15 Sep 2026, semua FREE dalam rate limit)
+
+| Agent | Provider | Model | Kenapa |
+|---|---|---|---|
+| Router | Groq | `openai/gpt-oss-20b` | Cepat, buat JSON planning ringan |
+| Architect | OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` | Didesain buat agent orchestration & reasoning, 1M context |
+| UI/UX Designer | Gemini | `gemini-2.5-flash` | Satu-satunya lini Gemini yang masih gratis (Pro sudah paid-only), tetap kuat visual judgment |
+| Anti-Slop Reviewer | Gemini | `gemini-2.5-flash` | Sama, buat evaluasi desain |
+| CSS Specialist | OpenRouter | `poolside/laguna-s-2.1:free` | Coding agent, 70.2% Terminal-Bench 2.1 |
+| JS Specialist | Groq | `openai/gpt-oss-120b` | Diklaim setara o3-mini buat code gen |
+| Scraper Agent | Groq | `groq/compound` | Built-in tool web search + visit website + code execution |
+| Bug Checker/QA | OpenRouter | `nex-agi/nex-n2.5-pro:free` | Didesain buat loop diagnose → revise → test |
+| Security Reviewer | OpenRouter | `cohere/north-mini-code:free` | Coding agentic, latency rendah |
+| Assembler | Groq | `openai/gpt-oss-120b` | Reliable gabungin jadi HTML final |
+
 ## Hal penting yang perlu lu tau
 
-- **Semua model yang dipakai FREE tier** (per Sept 2026): `gemini-3.8-flash` (Gemini),
-  `openai/gpt-oss-120b` & `openai/gpt-oss-20b` (Groq), dan beberapa model `:free`
-  di OpenRouter (`nvidia/nemotron-3-super-120b-a12b`, `cohere/north-mini-code`,
-  `poolside/laguna-s-2.1`, `nex-agi/nex-n2.5-pro`). **Model ID gampang berubah** —
-  provider sering rilis/deprecate model tiap beberapa bulan (contoh: `gemini-2.5-pro`
-  dan `llama-3.3-70b-versatile` yang tadinya gua pakai udah dideprecate/paid-only).
-  Kalau ada error "model not found", cek ulang:
-  - Gemini: [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)
+- **Model ID gampang berubah** — provider sering rilis/deprecate model tiap
+  beberapa bulan. Contoh yang udah kejadian: `llama-3.3-70b-versatile` di Groq
+  pindah ke tier Enterprise (bayar), dan `gemini-2.5-pro`/semua varian "Pro" di
+  Gemini jadi paid-only sejak April 2026 — makanya di atas dipakai `gpt-oss` dan
+  `gemini-2.5-flash`. Kalau ada error "model not found" atau tiba-tiba kena
+  charge, cek ulang lalu ganti string model-nya di `lib/agents.ts`:
   - Groq: [console.groq.com/docs/models](https://console.groq.com/docs/models)
   - OpenRouter free models: [openrouter.ai/collections/free-models](https://openrouter.ai/collections/free-models)
-- **Rate limit model free.** OpenRouter `:free` biasanya ±20 request/menit &
-  200/hari; Groq free tier ±30 req/menit & 1.000/hari. Kalau brief kompleks dan
-  ke-throttle (error 429), tunggu sebentar atau kurangi jumlah agent yang jalan.
+  - Gemini: [ai.google.dev/gemini-api/docs/pricing](https://ai.google.dev/gemini-api/docs/pricing) (cek kolom "Free tier")
+- **Rate limit model free itu nyata.** Groq ±30 request/menit, OpenRouter
+  model `:free` ±20 request/menit, Gemini Flash ±10 RPM/500 RPD. Kalau Studio
+  dipakai bolak-balik cepat, bisa kena error 429 (too many requests) — itu
+  limit provider, bukan bug.
 - **Durasi request.** 10 agent jalan berurutan = bisa 30–90 detik sekali brief,
   tergantung kompleksitas & provider. Vercel **Hobby plan** default timeout
   function di 10–60 detik — kalau kena timeout, upgrade ke Pro (timeout sampai
@@ -44,6 +59,10 @@ timeline kerja, live preview, run Python (via Pyodide di browser), dan export ZI
   tapi load pertama agak berat (~10MB runtime, di-cache browser setelah itu).
 - **API key aman** — semua panggilan ke Gemini/OpenRouter/Groq lewat API route
   server (`app/api/chat/route.ts`), key gak pernah dikirim ke browser.
+- **Scraper agent (`groq/compound`)** punya tool bawaan visit-website & code
+  execution, jadi kadang responsnya sudah termasuk hasil kunjungan situs itu
+  sendiri — endpoint `/api/fetch-url` yang manual masih kepake sebagai fallback
+  kalau task-nya butuh proxy fetch biasa.
 - Anti-slop reviewer ngecek pattern generic (bg krem+terracotta, kartu rounded
   seragam, eyebrow ALL CAPS, dst) dan minta UI agent revisi max 2x per request.
 
